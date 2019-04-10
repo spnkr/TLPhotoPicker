@@ -119,6 +119,8 @@ open class TLPhotosPickerViewController: UIViewController {
     public var selectedAssets = [TLPHAsset]()
     public var configure = TLPhotosPickerConfigure()
     public var customDataSouces: TLPhotopickerDataSourcesProtocol? = nil
+  
+    public var presentedInNavigationController: Bool = false
     
     private var usedCameraButton: Bool {
         get {
@@ -155,7 +157,7 @@ open class TLPhotosPickerViewController: UIViewController {
     private var completionWithTLPHAssets: (([TLPHAsset]) -> Void)? = nil
     private var didCancel: (() -> Void)? = nil
     
-    private var collections = [TLAssetsCollection]()
+    public var collections = [TLAssetsCollection]()
     private var focusedCollection: TLAssetsCollection? = nil
     private var requestIDs = SynchronizedDictionary<IndexPath,PHImageRequestID>()
     private var playRequestID: (indexPath: IndexPath, requestID: PHImageRequestID)? = nil
@@ -282,7 +284,7 @@ extension TLPhotosPickerViewController {
             return
         }
         let count = CGFloat(self.configure.numberOfColumn)
-        let width = (self.view.frame.size.width-(5*(count-1)))/count
+        let width = ((self.view.frame.size.width-40)-(5*(count-1)))/count
         self.thumbnailSize = CGSize(width: width, height: width)
         layout.itemSize = self.thumbnailSize
         self.collectionView.collectionViewLayout = layout
@@ -303,9 +305,6 @@ extension TLPhotosPickerViewController {
         self.titleView.addGestureRecognizer(tapGesture)
         self.titleLabel.text = self.configure.defaultCameraRollTitle
         self.subTitleLabel.text = self.configure.tapHereToChange
-        self.cancelButton.title = self.configure.cancelTitle
-        self.doneButton.title = self.configure.doneTitle
-        self.doneButton.setTitleTextAttributes([NSAttributedString.Key.font: UIFont.boldSystemFont(ofSize: UIFont.labelFontSize)], for: .normal)
         self.emptyView.isHidden = true
         self.emptyImageView.image = self.configure.emptyImage
         self.emptyMessageLabel.text = self.configure.emptyMessage
@@ -425,7 +424,7 @@ extension TLPhotosPickerViewController {
         self.dismiss(done: true)
     }
     
-    private func dismiss(done: Bool) {
+    public func dismiss(done: Bool) {
         if done {
             #if swift(>=4.1)
             self.delegate?.dismissPhotoPicker(withPHAssets: self.selectedAssets.compactMap{ $0.phAsset })
@@ -443,10 +442,16 @@ extension TLPhotosPickerViewController {
             self.delegate?.photoPickerDidCancel()
             self.didCancel?()
         }
+      if(self.presentedInNavigationController){
+        self.navigationController?.popViewController(animated: true)
+        self.delegate?.dismissComplete()
+        self.dismissCompletion?()
+      }else{
         self.dismiss(animated: true) { [weak self] in
             self?.delegate?.dismissComplete()
             self?.dismissCompletion?()
         }
+      }
     }
     
     private func canSelect(phAsset: PHAsset) -> Bool {
@@ -624,7 +629,7 @@ extension TLPhotosPickerViewController {
 }
 // MARK: - Video & LivePhotos Control PHLivePhotoViewDelegate
 extension TLPhotosPickerViewController: PHLivePhotoViewDelegate {
-    private func stopPlay() {
+    public func stopPlay() {
         guard let playRequest = self.playRequestID else { return }
         self.playRequestID = nil
         guard let cell = self.collectionView.cellForItem(at: playRequest.indexPath) as? TLPhotoCollectionViewCell else { return }
@@ -790,7 +795,6 @@ extension TLPhotosPickerViewController: UICollectionViewDelegate,UICollectionVie
         cell.popScaleAnim()
         if let index = self.selectedAssets.firstIndex(where: { $0.phAsset == asset.phAsset }) {
         //deselect
-            self.logDelegate?.deselectedPhoto(picker: self, at: indexPath.row)
             self.selectedAssets.remove(at: index)
             #if swift(>=4.1)
             self.selectedAssets = self.selectedAssets.enumerated().compactMap({ (offset,asset) -> TLPHAsset? in
@@ -807,18 +811,19 @@ extension TLPhotosPickerViewController: UICollectionViewDelegate,UICollectionVie
             #endif
             cell.selectedAsset = false
             cell.stopPlay()
+            self.logDelegate?.deselectedPhoto(picker: self, at: indexPath.row)
             self.orderUpdateCells()
             if self.playRequestID?.indexPath == indexPath {
                 stopPlay()
             }
         }else {
         //select
-            self.logDelegate?.selectedPhoto(picker: self, at: indexPath.row)
             guard !maxCheck() else { return }
             guard canSelect(phAsset: phAsset) else { return }
             asset.selectedOrder = self.selectedAssets.count + 1
             self.selectedAssets.append(asset)
             cell.selectedAsset = true
+            self.logDelegate?.selectedPhoto(picker: self, at: indexPath.row)
             cell.orderLabel?.text = "\(asset.selectedOrder)"
             if asset.type != .photo, self.configure.autoPlay {
                 playVideo(asset: asset, indexPath: indexPath)
